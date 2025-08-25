@@ -37,7 +37,7 @@ class ExcelVisualizer:
     def __init__(self, root):
         self.root = root
         root.state('zoomed')
-        self.root.title("Cell Utilization and KPI Viewer V1.1")
+        self.root.title("Cell Utilization and KPI Viewer V1.2")
         self.tree = None
         self.df = None
         self.last_figure = None
@@ -47,47 +47,54 @@ class ExcelVisualizer:
         self.file_path = None
         self.kpi_label = None
         self.progress_bar = None
+        self.status_label = None
         self.create_widgets()
 
     def create_widgets(self):
-        frame = ttk.Frame(self.root)
-        frame.pack(fill="both", expand=True)
+        # Use a single, consistent grid layout for the entire application
+        self.root.grid_columnconfigure(0, weight=0)
+        self.root.grid_columnconfigure(1, weight=1)
+        self.root.grid_rowconfigure(2, weight=1)
+        
+        # Load Data Button
+        self.load_btn = tk.Button(self.root, text="Load Data File", bg="#599ACF", fg="white", font=('Arial', 12, 'bold'), command=self.ask_kpi_and_load)
+        self.load_btn.grid(row=0, column=0, columnspan=2, sticky="ew", pady=10, padx=10)
 
-        self.load_btn = tk.Button(frame, text="Load Data File", bg="#599ACF", fg="white", font=('Arial', 12, 'bold'), command=self.ask_kpi_and_load)
-        self.load_btn.pack(fill="x", pady=10, padx=10)
-
-        self.kpi_label = ttk.Label(frame, text="", font=('Arial', 12, 'bold'))
-        self.kpi_label.pack(fill="x", pady=5)
-
-        self.progress_label = ttk.Label(frame, text="")
-        self.progress_label.pack()
-
-        tree_frame = ttk.Frame(frame)
-        tree_frame.pack(side="left", fill="y")
-
+        # Centered KPI label
+        self.kpi_label = ttk.Label(self.root, text="", font=('Arial', 12, 'bold'))
+        self.kpi_label.grid(row=1, column=0, columnspan=2, pady=5)
+        
+        # Treeview Frame
+        tree_frame = ttk.Frame(self.root)
+        tree_frame.grid(row=2, column=0, sticky="ns", padx=5, pady=5)
         tree_scrollbar = ttk.Scrollbar(tree_frame)
         tree_scrollbar.pack(side="right", fill="y")
-
         self.treeview = ttk.Treeview(tree_frame, yscrollcommand=tree_scrollbar.set)
         self.treeview.pack(side="left", fill="y")
         tree_scrollbar.config(command=self.treeview.yview)
         self.treeview.bind("<<TreeviewSelect>>", self.on_tree_click)
 
-        self.canvas_frame = ttk.Frame(frame)
-        self.canvas_frame.pack(side="right", fill="both", expand=True)
+        # Canvas Frame
+        self.canvas_frame = ttk.Frame(self.root)
+        self.canvas_frame.grid(row=2, column=1, sticky="nsew", padx=5, pady=5)
 
-        # Progress bar and contact in the footer
+        # Footer Frame
         footer_frame = ttk.Frame(self.root)
-        footer_frame.pack(side="bottom", fill="x")
-
-        # Use grid for a more reliable layout
-        footer_frame.grid_columnconfigure(0, weight=1)
+        footer_frame.grid(row=3, column=0, columnspan=2, sticky="ew")
         
+        # Use grid for a more reliable footer layout
+        footer_frame.grid_columnconfigure(0, weight=1)
+        footer_frame.grid_columnconfigure(1, weight=0)
+        
+        # New label for "Ready" status
+        self.status_label = ttk.Label(footer_frame, text="", foreground="#058d10", font=('Arial', 10, 'bold'))
+        self.status_label.grid(row=0, column=0, sticky="w", padx=10, pady=5)
+
         self.progress_bar = ttk.Progressbar(footer_frame, orient="horizontal", mode="indeterminate")
         self.progress_bar.grid(row=0, column=0, sticky="ew", padx=10, pady=5)
         self.progress_bar.grid_remove() # Hide it initially
 
-        contact_label = ttk.Label(footer_frame, text="For support, contact jayeshkumar.patel@dish.com", foreground="red", font=('Arial', 10, 'bold', 'italic'))
+        contact_label = ttk.Label(footer_frame, text="support contact jayeshkumar.patel@dish.com", foreground="red", font=('Arial', 10, 'bold', 'italic'))
         contact_label.grid(row=0, column=1, padx=10, pady=5, sticky="e")
 
     def ask_kpi_and_load(self):
@@ -127,6 +134,7 @@ class ExcelVisualizer:
         if not self.selected_kpi or not self.file_path:
             return
         
+        # Set the KPI label text and ensure it is placed
         self.kpi_label.config(text=f"Selected KPI: {self.selected_kpi}")
 
         self.kpi_threshold = KPI_THRESHOLDS.get(self.selected_kpi, None)
@@ -147,9 +155,10 @@ class ExcelVisualizer:
         self.treeview.delete(*self.treeview.get_children())
         for widget in self.canvas_frame.winfo_children():
             widget.destroy()
-        self.progress_label.config(text="")
 
         self.load_btn.config(bg="#3d3d3d", text="Data Loading.....", state="disabled")
+        # Hide status label and show progress bar
+        self.status_label.grid_remove()
         self.progress_bar.grid()
         self.progress_bar.start()
 
@@ -160,8 +169,24 @@ class ExcelVisualizer:
             xls = pd.ExcelFile(file_path)
             self.df = pd.read_excel(xls, sheet_name=xls.sheet_names[0])
             
+            # Sanitize column names
             self.df.columns = self.df.columns.str.strip()
+            
+            # Check for required columns
+            required_cols = ['DATETIME', 'SELECTION_0_NAME', 'CELLNAME', self.selected_kpi]
+            
+            # Temporarily add SITEID and SECTORID to handle the extract_parts function
+            temp_df = self.df.copy()
+            if 'SITEID' not in temp_df.columns or 'SECTORID' not in temp_in_df.columns:
+                temp_df[['SITEID', 'SECTORID', 'BAND']] = temp_df['CELLNAME'].apply(extract_parts)
 
+            if not all(col in temp_df.columns for col in required_cols):
+                missing_cols = [col for col in required_cols if col not in temp_df.columns]
+                raise ValueError(f"Missing required columns: {', '.join(missing_cols)}")
+            
+            self.df = temp_df
+
+            # Data type conversions
             self.df['CELLNAME'] = self.df['CELLNAME'].astype(str).str.strip()
             self.df['DATETIME'] = pd.to_datetime(self.df['DATETIME'], errors='coerce')
             self.df[self.selected_kpi] = pd.to_numeric(self.df[self.selected_kpi], errors='coerce')
@@ -169,17 +194,22 @@ class ExcelVisualizer:
             if self.selected_kpi == 'UTL_DL PRB utilization':
                 self.df[self.selected_kpi] = self.df[self.selected_kpi] * 100
 
-            self.df[['SITEID', 'SECTORID', 'BAND']] = self.df['CELLNAME'].apply(extract_parts)
-
             self.populate_tree()
             self.load_btn.config(bg="#058d10", text="Data Loaded", state="normal")
-        except Exception as e:
-            self.progress_label.config(text=f"Error: {e}")
-            self.load_btn.config(bg="red", text="Load Failed", state="normal")
-        finally:
-            self.progress_bar.stop()
+            
+            # Hide progress bar and show status label
             self.progress_bar.grid_remove()
+            self.status_label.config(text="Ready")
+            self.status_label.grid()
 
+        except Exception as e:
+            self.status_label.config(text=f"Error: {e}")
+            self.load_btn.config(bg="red", text="Load Failed", state="normal")
+            
+            # Hide progress bar on error
+            self.progress_bar.grid_remove()
+            self.status_label.grid()
+            
     def populate_tree(self):
         self.treeview.delete(*self.treeview.get_children())
         
@@ -203,11 +233,14 @@ class ExcelVisualizer:
             if last_15_days[self.selected_kpi].empty:
                 continue
 
-            average_value = last_15_days[self.selected_kpi].mean()
-
-            if self.kpi_check_direction == 'above':
+            if self.selected_kpi == 'UTL_DL PRB utilization':
+                # Check if any data point in the last 15 days is above the threshold
+                condition_met = (last_15_days[self.selected_kpi] > self.kpi_threshold).any()
+            elif self.kpi_check_direction == 'above':
+                average_value = last_15_days[self.selected_kpi].mean()
                 condition_met = average_value > self.kpi_threshold
             else:
+                average_value = last_15_days[self.selected_kpi].mean()
                 condition_met = average_value < self.kpi_threshold
 
             root_map = alert_selections if condition_met else normal_selections
